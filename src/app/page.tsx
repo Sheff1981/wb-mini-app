@@ -58,6 +58,37 @@ type VerdictSummary = {
   note: string;
 };
 
+type ComparisonChange = {
+  category: string;
+  previousAmount: number;
+  currentAmount: number;
+  delta: number;
+  percentChange: number | null;
+  kind: "new" | "increased" | "decreased" | "disappeared" | "unchanged";
+};
+
+type ComparisonResult = {
+  ok: boolean;
+  mode?: "comparison";
+  comparison?: {
+    summary: {
+      previousPayout: number;
+      currentPayout: number;
+      payoutDelta: number;
+      previousNetSales: number;
+      currentNetSales: number;
+      netSalesDelta: number;
+      newOrIncreasedCount: number;
+      improvementCount: number;
+      extraCosts: number;
+    };
+    problems: ComparisonChange[];
+    improvements: ComparisonChange[];
+    allChanges: ComparisonChange[];
+  };
+  error?: string;
+};
+
 type UploadResult = {
   ok: boolean;
   mode?: "simple" | "wb_official";
@@ -97,6 +128,11 @@ export default function Home() {
   const [result, setResult] = useState<UploadResult | null>(null);
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
+  const [previousFile, setPreviousFile] = useState<File | null>(null);
+  const [currentFile, setCurrentFile] = useState<File | null>(null);
+  const [comparison, setComparison] = useState<ComparisonResult | null>(null);
+  const [compareStatus, setCompareStatus] = useState("");
+  const [compareLoading, setCompareLoading] = useState(false);
 
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
@@ -146,6 +182,40 @@ export default function Home() {
     }
   }
 
+  async function compareReports() {
+    if (!previousFile || !currentFile) return;
+
+    setCompareLoading(true);
+    setComparison(null);
+    setCompareStatus("");
+
+    try {
+      const form = new FormData();
+      form.append("previousFile", previousFile);
+      form.append("currentFile", currentFile);
+
+      const response = await fetch("/api/compare", {
+        method: "POST",
+        body: form,
+      });
+
+      const data = (await response.json()) as ComparisonResult;
+
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error ?? "Не удалось сравнить отчёты.");
+      }
+
+      setComparison(data);
+      setCompareStatus("Сравнение готово");
+    } catch (error) {
+      setCompareStatus(
+        error instanceof Error ? error.message : "Не удалось сравнить отчёты.",
+      );
+    } finally {
+      setCompareLoading(false);
+    }
+  }
+
   const officialResult =
     result?.mode === "wb_official" ? result : undefined;
 
@@ -168,6 +238,142 @@ export default function Home() {
           деньги и какие списания стоит проверить.
         </p>
       </section>
+
+      <section className="mb-5 rounded-3xl border border-black/10 bg-white p-5 text-black shadow-sm">
+        <p className="text-sm text-black/50">Сравнение недель</p>
+        <h2 className="mt-1 text-xl font-bold">Что изменилось в списаниях</h2>
+        <p className="mt-2 text-sm leading-5 text-black/55">
+          Загрузите предыдущий и текущий отчёт. Найдём новые списания и резкий рост расходов.
+        </p>
+
+        <div className="mt-4 grid gap-3">
+          <label className="cursor-pointer rounded-2xl border border-dashed border-black/15 p-4">
+            <span className="text-xs font-medium text-black/45">Предыдущий отчёт</span>
+            <p className="mt-1 truncate font-semibold">
+              {previousFile ? previousFile.name : "Выбрать файл"}
+            </p>
+            <input
+              type="file"
+              accept=".xlsx,.csv"
+              className="hidden"
+              onChange={(event) => {
+                setPreviousFile(event.target.files?.[0] ?? null);
+                setComparison(null);
+                setCompareStatus("");
+              }}
+            />
+          </label>
+
+          <label className="cursor-pointer rounded-2xl border border-dashed border-black/15 p-4">
+            <span className="text-xs font-medium text-black/45">Текущий отчёт</span>
+            <p className="mt-1 truncate font-semibold">
+              {currentFile ? currentFile.name : "Выбрать файл"}
+            </p>
+            <input
+              type="file"
+              accept=".xlsx,.csv"
+              className="hidden"
+              onChange={(event) => {
+                setCurrentFile(event.target.files?.[0] ?? null);
+                setComparison(null);
+                setCompareStatus("");
+              }}
+            />
+          </label>
+        </div>
+
+        <button
+          type="button"
+          disabled={!previousFile || !currentFile || compareLoading}
+          onClick={compareReports}
+          className="mt-4 w-full rounded-2xl bg-black px-5 py-3.5 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-30"
+        >
+          {compareLoading ? "Сравниваем…" : "Сравнить две недели"}
+        </button>
+
+        {compareStatus && (
+          <p className="mt-4 rounded-2xl bg-black/5 px-4 py-3 text-sm">
+            {compareStatus}
+          </p>
+        )}
+      </section>
+
+      {comparison?.comparison && (() => {
+        const cmp = comparison.comparison;
+        const payoutWorse = cmp.summary.payoutDelta < 0;
+
+        return (
+          <section className="mb-5 rounded-3xl border border-black/10 bg-white p-5 text-black shadow-sm">
+            <p className="text-sm text-black/50">Изменения относительно прошлой недели</p>
+            <h2 className="mt-1 text-2xl font-bold">
+              {cmp.summary.newOrIncreasedCount > 0
+                ? `Стало хуже: ${cmp.summary.newOrIncreasedCount}`
+                : "Новых проблем не найдено"}
+            </h2>
+
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <div className="rounded-2xl bg-black/[0.04] p-4">
+                <p className="text-xs text-black/45">Изменение выплаты</p>
+                <p className={`mt-1 text-xl font-bold ${payoutWorse ? "text-red-600" : "text-emerald-700"}`}>
+                  {cmp.summary.payoutDelta > 0 ? "+" : ""}
+                  {rub.format(cmp.summary.payoutDelta)}
+                </p>
+              </div>
+              <div className="rounded-2xl bg-red-50 p-4">
+                <p className="text-xs text-red-700">Дополнительные расходы</p>
+                <p className="mt-1 text-xl font-bold text-red-700">
+                  {rub.format(cmp.summary.extraCosts)}
+                </p>
+              </div>
+            </div>
+
+            {cmp.problems.length > 0 && (
+              <div className="mt-5 space-y-3">
+                {cmp.problems.map((item) => (
+                  <div
+                    key={item.category}
+                    className="rounded-2xl border border-red-100 bg-red-50/50 p-4"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-red-700">
+                          {item.kind === "new" ? "Новое списание" : "Резкий рост"}
+                        </span>
+                        <h3 className="mt-3 font-bold">{item.category}</h3>
+                      </div>
+                      <p className="whitespace-nowrap font-bold text-red-600">
+                        +{rub.format(Math.max(item.delta, 0))}
+                      </p>
+                    </div>
+                    <p className="mt-2 text-sm text-black/60">
+                      Было {rub.format(item.previousAmount)} → стало {rub.format(item.currentAmount)}
+                      {item.percentChange !== null ? ` · ${item.percentChange > 0 ? "+" : ""}${item.percentChange}%` : ""}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {cmp.improvements.length > 0 && (
+              <details className="mt-4 rounded-2xl border border-black/10">
+                <summary className="cursor-pointer px-4 py-3 text-sm font-semibold">
+                  Что улучшилось ({cmp.improvements.length})
+                </summary>
+                <div className="divide-y divide-black/10 border-t border-black/10 px-4">
+                  {cmp.improvements.map((item) => (
+                    <div key={item.category} className="flex items-center justify-between gap-3 py-3">
+                      <span className="text-sm">{item.category}</span>
+                      <span className="font-semibold text-emerald-700">
+                        {rub.format(item.delta)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
+          </section>
+        );
+      })()}
 
       <section className="rounded-3xl border border-black/10 bg-white p-5 text-black shadow-sm">
         <label
