@@ -288,6 +288,103 @@ function analyzeOfficialWb(rows: Row[]) {
     }))
     .sort((a, b) => a.forPay - b.forPay);
 
+  const expenseVerdicts: Array<{
+    category: string;
+    amount: number;
+    status: "Объяснимо" | "Проверить" | "Основание не подтверждено";
+    reason: string;
+  }> = [];
+
+  if (summary.logistics > 0) {
+    const share = summary.logistics / totalRetail;
+    expenseVerdicts.push({
+      category: "Логистика",
+      amount: round(summary.logistics),
+      status: share >= 0.25 ? "Проверить" : "Объяснимо",
+      reason:
+        share >= 0.25
+          ? `Есть понятная категория расхода, но сумма высокая: около ${Math.round(share * 100)}% чистых продаж.`
+          : "Это штатная услуга доставки/возвратной логистики WB. Сам факт списания нормален, но размер нужно сверять с тарифом и габаритами.",
+    });
+  }
+
+  if (summary.storage > 0) {
+    const share = summary.storage / totalRetail;
+    expenseVerdicts.push({
+      category: "Хранение",
+      amount: round(summary.storage),
+      status: share >= 0.1 ? "Проверить" : "Объяснимо",
+      reason:
+        share >= 0.1
+          ? "Основание понятное, но доля хранения необычно высокая для выручки периода."
+          : "Хранение — штатная платная услуга WB. Это не признак ошибки само по себе.",
+    });
+  }
+
+  if (summary.acceptance > 0) {
+    expenseVerdicts.push({
+      category: "Приёмка",
+      amount: round(summary.acceptance),
+      status: "Объяснимо",
+      reason:
+        "Платная приёмка может отражаться отдельной операцией. Проверять нужно соответствие конкретной поставке и тарифу.",
+    });
+  }
+
+  if (summary.penalties > 0) {
+    expenseVerdicts.push({
+      category: "Штрафы",
+      amount: round(summary.penalties),
+      status: "Проверить",
+      reason:
+        "Штраф может иметь договорное основание, но его нельзя считать корректным только по факту наличия строки. Нужны причина, событие и основание взыскания.",
+    });
+  }
+
+  for (const item of deductionBreakdown) {
+    const n = normalizeKey(item.name);
+    const knownPaidService =
+      n.includes("продвиж") ||
+      n.includes("реклам") ||
+      n.includes("платн") ||
+      n.includes("утилизац") ||
+      n.includes("кешб") ||
+      n.includes("тариф");
+
+    const vague =
+      n.includes("проч") ||
+      n.includes("коррект") ||
+      n === "" ||
+      n.includes("неизвест");
+
+    expenseVerdicts.push({
+      category: item.name || "Удержание без расшифровки",
+      amount: round(item.amount),
+      status: vague
+        ? "Основание не подтверждено"
+        : knownPaidService
+          ? "Объяснимо"
+          : "Проверить",
+      reason: vague
+        ? "В отчёте недостаточно конкретное описание. Нельзя уверенно понять, за что удержаны деньги."
+        : knownPaidService
+          ? "Категория похожа на платную услугу или отдельный тариф WB. Нужно сверить, подключалась ли услуга и совпадает ли сумма."
+          : "В отчёте есть расшифровка, но для уверенности нужно сверить её с офертой, тарифом или конкретным событием.",
+    });
+  }
+
+  const reviewAmount = round(
+    expenseVerdicts
+      .filter((item) => item.status !== "Объяснимо")
+      .reduce((sum, item) => sum + Math.max(item.amount, 0), 0),
+  );
+
+  const explainedAmount = round(
+    expenseVerdicts
+      .filter((item) => item.status === "Объяснимо")
+      .reduce((sum, item) => sum + Math.max(item.amount, 0), 0),
+  );
+
   return {
     mode: "wb_official" as const,
     rows: rows.length,
@@ -302,6 +399,15 @@ function analyzeOfficialWb(rows: Row[]) {
     },
     alerts,
     deductionBreakdown,
+    expenseVerdicts,
+    verdictSummary: {
+      explainedAmount,
+      reviewAmount,
+      note:
+        reviewAmount > 0
+          ? "Эта сумма не означает кражу. Это расходы, корректность которых нельзя подтвердить только по данным текущего отчёта."
+          : "По данным отчёта все распознанные списания имеют понятную категорию, но точность сумм всё равно зависит от тарифов и исходных операций.",
+    },
     products,
   };
 }
