@@ -90,11 +90,14 @@ type ComparisonResult = {
       previousNetSales: number;
       currentNetSales: number;
       netSalesDelta: number;
-      newOrIncreasedCount: number;
+      attentionCount: number;
+      costGrowthCount: number;
       improvementCount: number;
       extraCosts: number;
+      attentionAmount: number;
     };
-    problems: ComparisonChange[];
+    attention: ComparisonChange[];
+    costGrowth: ComparisonChange[];
     improvements: ComparisonChange[];
     allChanges: ComparisonChange[];
   };
@@ -330,9 +333,9 @@ export default function Home() {
           <section className="mb-5 rounded-3xl border border-black/10 bg-white p-5 text-black shadow-sm">
             <p className="text-sm text-black/50">Изменения относительно прошлой недели</p>
             <h2 className="mt-1 text-2xl font-bold">
-              {cmp.summary.newOrIncreasedCount > 0
-                ? `Стало хуже: ${cmp.summary.newOrIncreasedCount}`
-                : "Новых проблем не найдено"}
+              {cmp.summary.attentionCount > 0
+                ? `Нужно проверить: ${cmp.summary.attentionCount}`
+                : "Новых спорных списаний не найдено"}
             </h2>
 
             <div className="mt-4 grid grid-cols-2 gap-3">
@@ -351,9 +354,9 @@ export default function Home() {
               </div>
             </div>
 
-            {cmp.problems.length > 0 && (
+            {cmp.attention.length > 0 && (
               <div className="mt-5 space-y-3">
-                {cmp.problems.map((item) => (
+                {cmp.attention.map((item) => (
                   <div
                     key={item.category}
                     className="rounded-2xl border border-red-100 bg-red-50/50 p-4"
@@ -361,7 +364,7 @@ export default function Home() {
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-red-700">
-                          {item.kind === "new" ? "Новое списание" : "Резкий рост"}
+                          {item.kind === "new" ? "Нужно проверить" : "Резкий рост — проверить"}
                         </span>
                         <h3 className="mt-3 font-bold">{item.category}</h3>
                       </div>
@@ -376,6 +379,29 @@ export default function Home() {
                   </div>
                 ))}
               </div>
+            )}
+
+            {cmp.costGrowth.length > 0 && (
+              <details className="mt-4 rounded-2xl border border-black/10">
+                <summary className="cursor-pointer px-4 py-3 text-sm font-semibold">
+                  Обычный рост расходов ({cmp.costGrowth.length})
+                </summary>
+                <div className="divide-y divide-black/10 border-t border-black/10 px-4">
+                  {cmp.costGrowth.map((item) => (
+                    <div key={item.category} className="py-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-sm font-medium">{item.category}</span>
+                        <span className="font-semibold text-amber-700">
+                          +{rub.format(Math.max(item.delta, 0))}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-black/45">
+                        Было {rub.format(item.previousAmount)} → стало {rub.format(item.currentAmount)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </details>
             )}
 
             {cmp.improvements.length > 0 && (
