@@ -2,6 +2,38 @@
 
 import { ChangeEvent, useEffect, useState } from "react";
 
+type MoneySummary = {
+  sales: number;
+  returns: number;
+  commission: number;
+  logistics: number;
+  storage: number;
+  deductions: number;
+  cost: number;
+  profit: number;
+};
+
+type Product = {
+  id: number;
+  article: string;
+  name: string;
+  sales: number;
+  returns: number;
+  commission: number;
+  logistics: number;
+  storage: number;
+  deductions: number;
+  cost: number;
+  profit: number;
+};
+
+type Problem = {
+  article: string;
+  name: string;
+  profit: number;
+  reason: string;
+};
+
 type UploadResult = {
   ok: boolean;
   file?: {
@@ -9,11 +41,46 @@ type UploadResult = {
     size: number;
     type: string;
   };
+  sheet?: string;
+  rows?: number;
+  summary?: MoneySummary;
+  products?: Product[];
+  problems?: Problem[];
   error?: string;
 };
 
+const rub = new Intl.NumberFormat("ru-RU", {
+  style: "currency",
+  currency: "RUB",
+  maximumFractionDigits: 0,
+});
+
+function MoneyCard({
+  label,
+  value,
+  negative = false,
+}: {
+  label: string;
+  value: number;
+  negative?: boolean;
+}) {
+  return (
+    <div className="rounded-2xl bg-black/[0.04] p-4">
+      <p className="text-xs font-medium text-black/50">{label}</p>
+      <p
+        className={`mt-1 text-xl font-bold ${
+          negative ? "text-red-600" : "text-black"
+        }`}
+      >
+        {rub.format(value)}
+      </p>
+    </div>
+  );
+}
+
 export default function Home() {
   const [file, setFile] = useState<File | null>(null);
+  const [result, setResult] = useState<UploadResult | null>(null);
   const [status, setStatus] = useState<string>("");
   const [loading, setLoading] = useState(false);
 
@@ -24,16 +91,12 @@ export default function Home() {
 
     tg.ready();
     tg.expand();
-
-    if (tg.colorScheme === "dark") {
-      document.documentElement.style.setProperty("--background", "#111315");
-      document.documentElement.style.setProperty("--foreground", "#f4f4f5");
-    }
   }, []);
 
   function onFileChange(event: ChangeEvent<HTMLInputElement>) {
     const selected = event.target.files?.[0] ?? null;
     setFile(selected);
+    setResult(null);
     setStatus("");
   }
 
@@ -41,6 +104,7 @@ export default function Home() {
     if (!file) return;
 
     setLoading(true);
+    setResult(null);
     setStatus("");
 
     try {
@@ -55,10 +119,11 @@ export default function Home() {
       const data = (await response.json()) as UploadResult;
 
       if (!response.ok || !data.ok) {
-        throw new Error(data.error ?? "Не удалось загрузить файл.");
+        throw new Error(data.error ?? "Не удалось проанализировать файл.");
       }
 
-      setStatus(`Файл принят: ${data.file?.name ?? file.name}`);
+      setResult(data);
+      setStatus(`Проанализировано строк: ${data.rows ?? 0}`);
     } catch (error) {
       setStatus(
         error instanceof Error ? error.message : "Произошла неизвестная ошибка.",
@@ -74,7 +139,7 @@ export default function Home() {
         <p className="mb-2 text-sm font-medium opacity-60">Telegram Mini App</p>
         <h1 className="text-3xl font-bold tracking-tight">WB Аналитик</h1>
         <p className="mt-3 text-base leading-6 opacity-70">
-          Загрузите отчёт Wildberries. Мы покажем, куда уходят деньги и какие
+          Загрузите отчёт Wildberries. Покажем, куда уходят деньги и какие
           товары требуют внимания.
         </p>
       </section>
@@ -82,7 +147,7 @@ export default function Home() {
       <section className="rounded-3xl border border-black/10 bg-white p-5 text-black shadow-sm">
         <label
           htmlFor="report"
-          className="flex min-h-44 cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-black/15 px-5 text-center"
+          className="flex min-h-40 cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-black/15 px-5 text-center"
         >
           <span className="text-base font-semibold">
             {file ? file.name : "Выберите отчёт"}
@@ -105,7 +170,7 @@ export default function Home() {
           onClick={upload}
           className="mt-4 w-full rounded-2xl bg-black px-5 py-3.5 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-30"
         >
-          {loading ? "Загрузка…" : "Анализировать отчёт"}
+          {loading ? "Анализируем…" : "Анализировать отчёт"}
         </button>
 
         {status && (
@@ -115,9 +180,85 @@ export default function Home() {
         )}
       </section>
 
-      <p className="mt-auto pt-8 text-center text-xs opacity-40">
-        Первая версия MVP
-      </p>
+      {result?.summary && (
+        <section className="mt-5 rounded-3xl border border-black/10 bg-white p-5 text-black shadow-sm">
+          <div className="mb-4">
+            <p className="text-sm text-black/50">Результат анализа</p>
+            <h2 className="text-2xl font-bold">
+              {rub.format(result.summary.profit)}
+            </h2>
+            <p className="text-sm text-black/50">Расчётная прибыль</p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <MoneyCard label="Продажи" value={result.summary.sales} />
+            <MoneyCard label="Возвраты" value={result.summary.returns} />
+            <MoneyCard label="Комиссия WB" value={result.summary.commission} />
+            <MoneyCard label="Логистика" value={result.summary.logistics} />
+            <MoneyCard label="Хранение" value={result.summary.storage} />
+            <MoneyCard label="Удержания" value={result.summary.deductions} />
+          </div>
+        </section>
+      )}
+
+      {result?.problems && result.problems.length > 0 && (
+        <section className="mt-5 rounded-3xl border border-red-200 bg-white p-5 text-black shadow-sm">
+          <h2 className="text-xl font-bold">
+            Где теряются деньги: {result.problems.length}
+          </h2>
+
+          <div className="mt-4 space-y-3">
+            {result.problems.map((problem) => (
+              <div
+                key={`${problem.article}-${problem.name}`}
+                className="rounded-2xl bg-red-50 p-4"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-semibold">{problem.name}</p>
+                    <p className="mt-1 text-xs text-black/50">
+                      {problem.article}
+                    </p>
+                  </div>
+                  <p className="whitespace-nowrap font-bold text-red-600">
+                    {rub.format(problem.profit)}
+                  </p>
+                </div>
+                <p className="mt-2 text-sm text-black/65">{problem.reason}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {result?.products && result.products.length > 0 && (
+        <section className="mt-5 mb-8 rounded-3xl border border-black/10 bg-white p-5 text-black shadow-sm">
+          <h2 className="text-xl font-bold">Товары</h2>
+          <div className="mt-3 divide-y divide-black/10">
+            {result.products
+              .slice()
+              .sort((a, b) => a.profit - b.profit)
+              .map((product) => (
+                <div
+                  key={product.id}
+                  className="flex items-center justify-between gap-3 py-3"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">{product.name}</p>
+                    <p className="text-xs text-black/45">{product.article}</p>
+                  </div>
+                  <p
+                    className={`whitespace-nowrap font-semibold ${
+                      product.profit < 0 ? "text-red-600" : "text-emerald-600"
+                    }`}
+                  >
+                    {rub.format(product.profit)}
+                  </p>
+                </div>
+              ))}
+          </div>
+        </section>
+      )}
     </main>
   );
 }
