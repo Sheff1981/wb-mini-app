@@ -31,7 +31,16 @@ type Problem = {
   article: string;
   name: string;
   profit: number;
+  priority: "Высокий" | "Средний";
   reason: string;
+  metrics: {
+    logisticsStorageShare: number;
+    returnsShare: number;
+    commissionShare: number;
+    deductionsShare: number;
+    totalVariableCosts: number;
+  };
+  recommendations: string[];
 };
 
 type UploadResult = {
@@ -224,7 +233,39 @@ export default function Home() {
                     {rub.format(problem.profit)}
                   </p>
                 </div>
-                <p className="mt-2 text-sm text-black/65">{problem.reason}</p>
+                <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                  <span className="rounded-full bg-white px-2.5 py-1 font-semibold text-red-700">
+                    Приоритет: {problem.priority}
+                  </span>
+                  <span className="rounded-full bg-white px-2.5 py-1 text-black/60">
+                    Логистика + хранение: {problem.metrics.logisticsStorageShare}%
+                  </span>
+                  {problem.metrics.returnsShare > 0 && (
+                    <span className="rounded-full bg-white px-2.5 py-1 text-black/60">
+                      Возвраты: {problem.metrics.returnsShare}%
+                    </span>
+                  )}
+                </div>
+
+                <p className="mt-3 text-sm font-medium text-black/75">
+                  Почему:
+                </p>
+                <p className="mt-1 text-sm text-black/65">{problem.reason}</p>
+
+                <div className="mt-4 rounded-xl bg-white p-3">
+                  <p className="text-sm font-semibold">Что делать</p>
+                  <ul className="mt-2 space-y-2">
+                    {problem.recommendations.map((recommendation, index) => (
+                      <li
+                        key={index}
+                        className="flex gap-2 text-sm leading-5 text-black/70"
+                      >
+                        <span className="font-bold text-black/35">•</span>
+                        <span>{recommendation}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               </div>
             ))}
           </div>
