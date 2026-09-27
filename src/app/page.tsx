@@ -208,12 +208,12 @@ export default function Home() {
       {official && officialResult && (
         <>
           <section className="mt-5 rounded-3xl border border-black/10 bg-white p-5 text-black shadow-sm">
-            <p className="text-sm text-black/50">Расшифровка выплаты</p>
+            <p className="text-sm text-black/50">Итог по отчёту</p>
             <h2 className="mt-1 text-3xl font-bold">
               {rub.format(official.estimatedPayout)}
             </h2>
             <p className="mt-1 text-sm text-black/50">
-              Расчётный итог по операциям детализации
+              Расчётная выплата по операциям детализации
             </p>
 
             <div className="mt-5 grid grid-cols-2 gap-3">
@@ -226,167 +226,109 @@ export default function Home() {
 
           {officialResult.verdictSummary &&
             officialResult.expenseVerdicts &&
-            officialResult.expenseVerdicts.length > 0 && (
-              <section className="mt-5 rounded-3xl border border-black/10 bg-white p-5 text-black shadow-sm">
-                <p className="text-sm text-black/50">Ревизия списаний</p>
-                <h2 className="mt-1 text-2xl font-bold">
-                  Где WB забрал деньги
-                </h2>
+            officialResult.expenseVerdicts.length > 0 && (() => {
+              const reviewItems = officialResult.expenseVerdicts.filter(
+                (item) => item.status !== "Объяснимо",
+              );
+              const explainedItems = officialResult.expenseVerdicts.filter(
+                (item) => item.status === "Объяснимо",
+              );
 
-                <div className="mt-4 grid grid-cols-2 gap-3">
-                  <div className="rounded-2xl bg-emerald-50 p-4">
-                    <p className="text-xs font-medium text-emerald-700">
-                      Объяснимо по отчёту
-                    </p>
-                    <p className="mt-1 text-xl font-bold text-emerald-700">
-                      {rub.format(officialResult.verdictSummary.explainedAmount)}
-                    </p>
+              return (
+                <section className="mt-5 rounded-3xl border border-black/10 bg-white p-5 text-black shadow-sm">
+                  <p className="text-sm text-black/50">Проверка списаний WB</p>
+                  <h2 className="mt-1 text-2xl font-bold">
+                    {reviewItems.length === 0
+                      ? "Подозрительных списаний не найдено"
+                      : `Нужно проверить: ${reviewItems.length}`}
+                  </h2>
+
+                  <div className="mt-4 grid grid-cols-2 gap-3">
+                    <div className="rounded-2xl bg-emerald-50 p-4">
+                      <p className="text-xs font-medium text-emerald-700">
+                        Понятное основание
+                      </p>
+                      <p className="mt-1 text-xl font-bold text-emerald-700">
+                        {rub.format(officialResult.verdictSummary.explainedAmount)}
+                      </p>
+                    </div>
+                    <div className="rounded-2xl bg-red-50 p-4">
+                      <p className="text-xs font-medium text-red-700">
+                        Требует проверки
+                      </p>
+                      <p className="mt-1 text-xl font-bold text-red-700">
+                        {rub.format(officialResult.verdictSummary.reviewAmount)}
+                      </p>
+                    </div>
                   </div>
-                  <div className="rounded-2xl bg-red-50 p-4">
-                    <p className="text-xs font-medium text-red-700">
-                      Требует проверки
-                    </p>
-                    <p className="mt-1 text-xl font-bold text-red-700">
-                      {rub.format(officialResult.verdictSummary.reviewAmount)}
-                    </p>
-                  </div>
-                </div>
 
-                <div className="mt-4 space-y-3">
-                  {officialResult.expenseVerdicts.map((item, index) => {
-                    const statusClass =
-                      item.status === "Объяснимо"
-                        ? "bg-emerald-50 text-emerald-700"
-                        : item.status === "Проверить"
-                          ? "bg-amber-50 text-amber-800"
-                          : "bg-red-50 text-red-700";
+                  {reviewItems.length > 0 && (
+                    <div className="mt-5 space-y-3">
+                      {reviewItems.map((item, index) => {
+                        const statusClass =
+                          item.status === "Проверить"
+                            ? "bg-amber-50 text-amber-800"
+                            : "bg-red-50 text-red-700";
 
-                    return (
-                      <div
-                        key={`${item.category}-${index}`}
-                        className="rounded-2xl border border-black/5 p-4"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <span
-                              className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusClass}`}
-                            >
-                              {item.status}
-                            </span>
-                            <h3 className="mt-3 font-bold">{item.category}</h3>
+                        return (
+                          <div
+                            key={`${item.category}-${index}`}
+                            className="rounded-2xl border border-red-100 bg-red-50/40 p-4"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <span
+                                  className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusClass}`}
+                                >
+                                  {item.status}
+                                </span>
+                                <h3 className="mt-3 font-bold">{item.category}</h3>
+                              </div>
+                              <p className="whitespace-nowrap font-bold text-red-600">
+                                {rub.format(item.amount)}
+                              </p>
+                            </div>
+                            <p className="mt-2 text-sm leading-5 text-black/65">
+                              {item.reason}
+                            </p>
                           </div>
-                          <p className="whitespace-nowrap font-bold">
-                            {rub.format(item.amount)}
-                          </p>
-                        </div>
-                        <p className="mt-2 text-sm leading-5 text-black/65">
-                          {item.reason}
-                        </p>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <p className="mt-4 rounded-2xl bg-black/[0.04] p-3 text-xs leading-5 text-black/55">
+                    {officialResult.verdictSummary.note}
+                  </p>
+
+                  {explainedItems.length > 0 && (
+                    <details className="mt-4 rounded-2xl border border-black/10 bg-white">
+                      <summary className="cursor-pointer px-4 py-3 text-sm font-semibold">
+                        Показать объяснимые списания ({explainedItems.length})
+                      </summary>
+                      <div className="divide-y divide-black/10 border-t border-black/10 px-4">
+                        {explainedItems.map((item, index) => (
+                          <div
+                            key={`explained-${item.category}-${index}`}
+                            className="py-3"
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="font-medium">{item.category}</p>
+                              <p className="whitespace-nowrap font-semibold text-emerald-700">
+                                {rub.format(item.amount)}
+                              </p>
+                            </div>
+                            <p className="mt-1 text-sm leading-5 text-black/55">
+                              {item.reason}
+                            </p>
+                          </div>
+                        ))}
                       </div>
-                    );
-                  })}
-                </div>
-
-                <p className="mt-4 rounded-2xl bg-black/[0.04] p-3 text-xs leading-5 text-black/55">
-                  {officialResult.verdictSummary.note}
-                </p>
-              </section>
-            )}
-
-          <section className="mt-5 rounded-3xl border border-black/10 bg-white p-5 text-black shadow-sm">
-            <h2 className="text-xl font-bold">Куда ушли деньги</h2>
-            <div className="mt-4 space-y-3">
-              {[
-                ["Логистика", official.logistics],
-                ["Хранение", official.storage],
-                ["Удержания", official.deductions],
-                ["Штрафы", official.penalties],
-                ["Приёмка", official.acceptance],
-              ].map(([label, value]) => (
-                <div
-                  key={String(label)}
-                  className="flex items-center justify-between rounded-2xl bg-black/[0.04] px-4 py-3"
-                >
-                  <span className="text-sm font-medium">{label}</span>
-                  <span className="font-bold">{rub.format(Number(value))}</span>
-                </div>
-              ))}
-            </div>
-
-            {officialResult.ratios && (
-              <div className="mt-4 rounded-2xl bg-black p-4 text-white">
-                <p className="text-sm font-semibold">
-                  Все основные списания: {officialResult.ratios.costsShare}% от чистых
-                  продаж
-                </p>
-                <p className="mt-1 text-xs text-white/65">
-                  Логистика {officialResult.ratios.logisticsShare}% · хранение{" "}
-                  {officialResult.ratios.storageShare}% · возвраты{" "}
-                  {officialResult.ratios.returnsShare}%
-                </p>
-              </div>
-            )}
-          </section>
-
-          {officialResult.alerts && officialResult.alerts.length > 0 && (
-            <section className="mt-5 rounded-3xl border border-red-200 bg-white p-5 text-black shadow-sm">
-              <h2 className="text-xl font-bold">
-                Что проверить: {officialResult.alerts.length}
-              </h2>
-              <div className="mt-4 space-y-3">
-                {officialResult.alerts.map((alert, index) => (
-                  <div key={index} className="rounded-2xl bg-red-50 p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-red-700">
-                          {alert.level}
-                        </span>
-                        <h3 className="mt-3 font-bold">{alert.title}</h3>
-                      </div>
-                      <p className="whitespace-nowrap font-bold text-red-600">
-                        {rub.format(alert.amount)}
-                      </p>
-                    </div>
-                    <p className="mt-2 text-sm leading-5 text-black/65">
-                      {alert.explanation}
-                    </p>
-                    <div className="mt-3 rounded-xl bg-white p-3">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-black/40">
-                        Что делать
-                      </p>
-                      <p className="mt-1 text-sm leading-5 text-black/75">
-                        {alert.action}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {officialResult.deductionBreakdown &&
-            officialResult.deductionBreakdown.length > 0 && (
-              <section className="mt-5 rounded-3xl border border-black/10 bg-white p-5 text-black shadow-sm">
-                <h2 className="text-xl font-bold">Расшифровка удержаний</h2>
-                <div className="mt-3 divide-y divide-black/10">
-                  {officialResult.deductionBreakdown.map((item, index) => (
-                    <div
-                      key={index}
-                      className="flex items-start justify-between gap-4 py-3"
-                    >
-                      <p className="text-sm leading-5 text-black/70">{item.name}</p>
-                      <p
-                        className={`whitespace-nowrap font-semibold ${
-                          item.amount > 0 ? "text-red-600" : "text-emerald-600"
-                        }`}
-                      >
-                        {rub.format(item.amount)}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
+                    </details>
+                  )}
+                </section>
+              );
+            })()}
         </>
       )}
 
