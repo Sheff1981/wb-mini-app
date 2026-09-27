@@ -175,15 +175,108 @@ app.post("/upload", async (c) => {
     const problems = products
       .filter((product) => product.profit < 0)
       .sort((a, b) => a.profit - b.profit)
-      .map((product) => ({
-        article: product.article,
-        name: product.name,
-        profit: product.profit,
-        reason:
-          product.storage + product.logistics > product.sales * 0.25
-            ? "Высокие расходы на логистику и хранение"
-            : "Расходы превышают доход по товару",
-      }));
+      .map((product) => {
+        const salesBase = Math.max(product.sales, 1);
+        const logisticsStorageShare =
+          (product.logistics + product.storage) / salesBase;
+        const returnsShare = product.returns / salesBase;
+        const commissionShare = product.commission / salesBase;
+        const deductionsShare = product.deductions / salesBase;
+
+        const reasons: string[] = [];
+        const recommendations: string[] = [];
+
+        if (logisticsStorageShare >= 0.25) {
+          reasons.push(
+            `Логистика и хранение съедают ${Math.round(
+              logisticsStorageShare * 100,
+            )}% продаж`,
+          );
+          recommendations.push(
+            "Проверьте габариты и тариф логистики: завышенные размеры напрямую увеличивают стоимость доставки.",
+          );
+          recommendations.push(
+            "Сократите избыточный остаток на складах с низкой оборачиваемостью, чтобы уменьшить хранение.",
+          );
+        }
+
+        if (returnsShare >= 0.1) {
+          reasons.push(
+            `Возвраты составляют ${Math.round(returnsShare * 100)}% продаж`,
+          );
+          recommendations.push(
+            "Проверьте карточку товара, размерную сетку, фото и описание — высокий процент возвратов часто связан с несоответствием ожиданий.",
+          );
+        }
+
+        if (commissionShare >= 0.2) {
+          reasons.push(
+            `Комиссия составляет ${Math.round(commissionShare * 100)}% продаж`,
+          );
+          recommendations.push(
+            "Пересчитайте минимальную рентабельную цену с учётом текущей комиссии WB.",
+          );
+        }
+
+        if (deductionsShare >= 0.05) {
+          reasons.push(
+            `Удержания составляют ${Math.round(deductionsShare * 100)}% продаж`,
+          );
+          recommendations.push(
+            "Разберите состав удержаний в отчёте WB и проверьте штрафы, платные услуги и прочие списания.",
+          );
+        }
+
+        const totalVariableCosts =
+          product.returns +
+          product.commission +
+          product.logistics +
+          product.storage +
+          product.deductions +
+          product.cost;
+
+        const breakEvenPriceIncrease =
+          product.sales > 0
+            ? Math.ceil((Math.abs(product.profit) / product.sales) * 100)
+            : 0;
+
+        if (product.profit < 0 && breakEvenPriceIncrease > 0) {
+          recommendations.push(
+            `Для выхода примерно в ноль при неизменных расходах нужна прибавка к выручке около ${breakEvenPriceIncrease}%.`,
+          );
+        }
+
+        if (recommendations.length === 0) {
+          recommendations.push(
+            "Сравните себестоимость и текущую цену: товар убыточен даже без выраженного одного источника потерь.",
+          );
+          recommendations.push(
+            "Проверьте, можно ли поднять цену или снизить закупочную себестоимость.",
+          );
+        }
+
+        return {
+          article: product.article,
+          name: product.name,
+          profit: product.profit,
+          priority:
+            Math.abs(product.profit) >= Math.max(product.sales * 0.1, 1000)
+              ? "Высокий"
+              : "Средний",
+          reason:
+            reasons.length > 0
+              ? reasons.join(". ")
+              : "Совокупные расходы превышают доход по товару",
+          metrics: {
+            logisticsStorageShare: round(logisticsStorageShare * 100),
+            returnsShare: round(returnsShare * 100),
+            commissionShare: round(commissionShare * 100),
+            deductionsShare: round(deductionsShare * 100),
+            totalVariableCosts: round(totalVariableCosts),
+          },
+          recommendations: Array.from(new Set(recommendations)).slice(0, 4),
+        };
+      });
 
     return c.json({
       ok: true,
