@@ -144,12 +144,23 @@ function analyzeOfficialWb(rows: Row[]) {
   };
 
   const deductionDetails = new Map<string, number>();
+  const reviewCases: Array<{
+    line: number;
+    date: string;
+    operation: string;
+    detail: string;
+    amount: number;
+    status: "Проверить" | "Основание не подтверждено";
+    why: string;
+    draft: string;
+    checklist: string[];
+  }> = [];
   const productMap = new Map<
     string,
     { article: string; name: string; sales: number; returns: number; forPay: number }
   >();
 
-  for (const row of rows) {
+  for (const [rowIndex, row] of rows.entries()) {
     const opRaw = pick(row, wbAliases.operation);
     const kind = classifyOperation(opRaw);
 
@@ -183,6 +194,93 @@ function analyzeOfficialWb(rows: Row[]) {
       summary.deductions += deductionRaw;
       const detail = String(pick(row, wbAliases.detail) ?? "Прочие удержания").trim();
       deductionDetails.set(detail, (deductionDetails.get(detail) ?? 0) + deductionRaw);
+    }
+
+    const detailText = String(pick(row, wbAliases.detail) ?? "").trim();
+    const normalizedDetail = normalizeKey(detailText);
+    const dateValue = row["Дата операции"] ?? row["Дата"] ?? "";
+    const dateText =
+      dateValue instanceof Date
+        ? dateValue.toLocaleDateString("ru-RU")
+        : String(dateValue || "Дата не указана");
+
+    const paidService =
+      normalizedDetail.includes("продвиж") ||
+      normalizedDetail.includes("реклам") ||
+      normalizedDetail.includes("тариф") ||
+      normalizedDetail.includes("подпис") ||
+      normalizedDetail.includes("джем");
+
+    const vagueDeduction =
+      deductionRaw > 0 &&
+      (normalizedDetail === "" ||
+        normalizedDetail.includes("проч") ||
+        normalizedDetail.includes("коррект") ||
+        normalizedDetail.includes("неизвест"));
+
+    if (vagueDeduction) {
+      const amount = round(Math.abs(deductionRaw));
+      reviewCases.push({
+        line: rowIndex + 2,
+        date: dateText,
+        operation: String(opRaw ?? "Удержание"),
+        detail: detailText || "Расшифровка отсутствует",
+        amount,
+        status: "Основание не подтверждено",
+        why:
+          "В строке есть списание, но описание не позволяет однозначно понять основание и проверить расчёт.",
+        draft:
+          `Прошу предоставить подробное основание и расчёт удержания на сумму ${amount.toLocaleString("ru-RU")} ₽ за ${dateText}. В детализации еженедельного отчёта указано: «${detailText || "расшифровка отсутствует"}». Прошу сообщить, к какой услуге, поставке, товару или событию относится удержание, а также указать применённый тариф/пункт оферты и расчёт суммы.`,
+        checklist: [
+          "Номер еженедельного отчёта и период",
+          `Строка Excel: ${rowIndex + 2}`,
+          "Скрин строки детализации с суммой и расшифровкой",
+          "Ответ поддержки с расчётом и основанием удержания",
+        ],
+      });
+    } else if (kind === "penalty" || penalty > 0) {
+      const amount = round(Math.max(penalty, Math.abs(deductionRaw)));
+      if (amount > 0) {
+        reviewCases.push({
+          line: rowIndex + 2,
+          date: dateText,
+          operation: String(opRaw ?? "Штраф"),
+          detail: detailText || "Причина штрафа не указана",
+          amount,
+          status: "Проверить",
+          why:
+            "Штраф нельзя признать корректным только по наличию строки: нужно сопоставить причину, событие и основание взыскания.",
+          draft:
+            `Прошу предоставить основание штрафа на сумму ${amount.toLocaleString("ru-RU")} ₽ за ${dateText}. В детализации отчёта указано: «${detailText || "причина не указана"}». Прошу указать конкретное нарушение/событие, идентификатор связанной поставки или операции, применённый пункт оферты/перечня штрафов и расчёт суммы. Если начисление произведено ошибочно, прошу выполнить корректировку.`,
+          checklist: [
+            "Номер еженедельного отчёта и период",
+            `Строка Excel: ${rowIndex + 2}`,
+            "Причина штрафа из столбца расшифровки",
+            "Связанная поставка/заказ/товар, если указаны",
+            "Пункт оферты или перечня штрафов, на который ссылается WB",
+          ],
+        });
+      }
+    } else if (deductionRaw > 0 && !paidService) {
+      const amount = round(Math.abs(deductionRaw));
+      reviewCases.push({
+        line: rowIndex + 2,
+        date: dateText,
+        operation: String(opRaw ?? "Удержание"),
+        detail: detailText || "Удержание",
+        amount,
+        status: "Проверить",
+        why:
+          "Расшифровка есть, но по одному отчёту нельзя подтвердить, что сумма рассчитана верно.",
+        draft:
+          `Прошу предоставить расчёт удержания «${detailText || "Удержание"}» на сумму ${amount.toLocaleString("ru-RU")} ₽ за ${dateText}. Прошу указать основание начисления, применённый тариф/пункт оферты и исходные данные, из которых получена сумма.`,
+        checklist: [
+          "Номер еженедельного отчёта и период",
+          `Строка Excel: ${rowIndex + 2}`,
+          "Расшифровка удержания",
+          "Связанный тариф/услуга/событие",
+        ],
+      });
     }
 
     const article = String(pick(row, wbAliases.article) ?? "").trim();
@@ -400,6 +498,7 @@ function analyzeOfficialWb(rows: Row[]) {
     alerts,
     deductionBreakdown,
     expenseVerdicts,
+    reviewCases: reviewCases.sort((a, b) => b.amount - a.amount),
     verdictSummary: {
       explainedAmount,
       reviewAmount,
