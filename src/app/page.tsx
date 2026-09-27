@@ -131,15 +131,17 @@ export default function Home() {
     }
   }
 
+  const officialResult =
+    result?.mode === "wb_official" ? result : undefined;
+
   const official =
-    result?.mode === "wb_official"
-      ? (result.summary as OfficialSummary | undefined)
-      : undefined;
+    officialResult?.summary as OfficialSummary | undefined;
+
+  const simpleResult =
+    result?.mode === "simple" ? result : undefined;
 
   const simple =
-    result?.mode === "simple"
-      ? (result.summary as SimpleSummary | undefined)
-      : undefined;
+    simpleResult?.summary as SimpleSummary | undefined;
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-xl flex-col px-5 py-8">
@@ -188,7 +190,7 @@ export default function Home() {
         )}
       </section>
 
-      {official && (
+      {official && officialResult && (
         <>
           <section className="mt-5 rounded-3xl border border-black/10 bg-white p-5 text-black shadow-sm">
             <p className="text-sm text-black/50">Расшифровка выплаты</p>
@@ -227,28 +229,28 @@ export default function Home() {
               ))}
             </div>
 
-            {result.ratios && (
+            {officialResult.ratios && (
               <div className="mt-4 rounded-2xl bg-black p-4 text-white">
                 <p className="text-sm font-semibold">
-                  Все основные списания: {result.ratios.costsShare}% от чистых
+                  Все основные списания: {officialResult.ratios.costsShare}% от чистых
                   продаж
                 </p>
                 <p className="mt-1 text-xs text-white/65">
-                  Логистика {result.ratios.logisticsShare}% · хранение{" "}
-                  {result.ratios.storageShare}% · возвраты{" "}
-                  {result.ratios.returnsShare}%
+                  Логистика {officialResult.ratios.logisticsShare}% · хранение{" "}
+                  {officialResult.ratios.storageShare}% · возвраты{" "}
+                  {officialResult.ratios.returnsShare}%
                 </p>
               </div>
             )}
           </section>
 
-          {result.alerts && result.alerts.length > 0 && (
+          {officialResult.alerts && officialResult.alerts.length > 0 && (
             <section className="mt-5 rounded-3xl border border-red-200 bg-white p-5 text-black shadow-sm">
               <h2 className="text-xl font-bold">
-                Что проверить: {result.alerts.length}
+                Что проверить: {officialResult.alerts.length}
               </h2>
               <div className="mt-4 space-y-3">
-                {result.alerts.map((alert, index) => (
+                {officialResult.alerts.map((alert, index) => (
                   <div key={index} className="rounded-2xl bg-red-50 p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div>
@@ -278,12 +280,12 @@ export default function Home() {
             </section>
           )}
 
-          {result.deductionBreakdown &&
-            result.deductionBreakdown.length > 0 && (
+          {officialResult.deductionBreakdown &&
+            officialResult.deductionBreakdown.length > 0 && (
               <section className="mt-5 rounded-3xl border border-black/10 bg-white p-5 text-black shadow-sm">
                 <h2 className="text-xl font-bold">Расшифровка удержаний</h2>
                 <div className="mt-3 divide-y divide-black/10">
-                  {result.deductionBreakdown.map((item, index) => (
+                  {officialResult.deductionBreakdown.map((item, index) => (
                     <div
                       key={index}
                       className="flex items-start justify-between gap-4 py-3"
