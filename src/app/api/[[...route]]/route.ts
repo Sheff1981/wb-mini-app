@@ -707,8 +707,31 @@ function compareOfficialReports(
     })
     .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
 
-  const problems = changes.filter(
-    (item) => item.kind === "new" || item.kind === "increased",
+  const currentVerdictMap = new Map(
+    current.expenseVerdicts.map((item) => [normalizeKey(item.category), item.status]),
+  );
+
+  const attention = changes.filter((item) => {
+    if (!(item.kind === "new" || item.kind === "increased")) return false;
+
+    const status = currentVerdictMap.get(normalizeKey(item.category));
+
+    if (status && status !== "Объяснимо") return true;
+
+    const category = normalizeKey(item.category);
+    const isOperationalSpike =
+      (category.includes("логист") || category.includes("хранен")) &&
+      item.kind === "increased" &&
+      item.delta >= 1000 &&
+      (item.percentChange ?? 0) >= 40;
+
+    return isOperationalSpike;
+  });
+
+  const costGrowth = changes.filter(
+    (item) =>
+      (item.kind === "new" || item.kind === "increased") &&
+      !attention.some((attentionItem) => attentionItem.category === item.category),
   );
 
   const improvements = changes.filter(
@@ -734,13 +757,21 @@ function compareOfficialReports(
       previousNetSales: round(previousSales),
       currentNetSales: round(currentSales),
       netSalesDelta: round(currentSales - previousSales),
-      newOrIncreasedCount: problems.length,
+      attentionCount: attention.length,
+      costGrowthCount: costGrowth.length,
       improvementCount: improvements.length,
       extraCosts: round(
-        problems.reduce((sum, item) => sum + Math.max(item.delta, 0), 0),
+        [...attention, ...costGrowth].reduce(
+          (sum, item) => sum + Math.max(item.delta, 0),
+          0,
+        ),
+      ),
+      attentionAmount: round(
+        attention.reduce((sum, item) => sum + Math.max(item.delta, 0), 0),
       ),
     },
-    problems,
+    attention,
+    costGrowth,
     improvements,
     allChanges: changes,
   };
