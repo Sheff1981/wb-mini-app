@@ -476,6 +476,177 @@ function analyzeSimple(rows: Row[]) {
   };
 }
 
+
+async function readReportFile(file: File) {
+  const lowerName = file.name.toLowerCase();
+
+  if (!ALLOWED_EXTENSIONS.some((ext) => lowerName.endsWith(ext))) {
+    throw new Error("Поддерживаются только XLSX и CSV.");
+  }
+
+  if (file.size > MAX_FILE_SIZE) {
+    throw new Error("Размер файла превышает 20 МБ.");
+  }
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
+  const sheetName =
+    workbook.SheetNames.find((name) => normalizeKey(name) !== "readme") ??
+    workbook.SheetNames[0];
+
+  if (!sheetName) {
+    throw new Error("В файле нет листов.");
+  }
+
+  const worksheet = workbook.Sheets[sheetName];
+  const rows = XLSX.utils.sheet_to_json<Row>(worksheet, {
+    defval: null,
+    raw: true,
+  });
+
+  if (rows.length === 0) {
+    throw new Error("В отчёте нет строк с данными.");
+  }
+
+  const looksOfficial =
+    hasAnyColumn(rows, wbAliases.operation) &&
+    (hasAnyColumn(rows, wbAliases.sellerForPay) ||
+      hasAnyColumn(rows, wbAliases.delivery) ||
+      hasAnyColumn(rows, wbAliases.storage));
+
+  if (!looksOfficial) {
+    throw new Error(
+      "Для сравнения нужны две детализации еженедельного отчёта реализации WB.",
+    );
+  }
+
+  return {
+    sheetName,
+    analysis: analyzeOfficialWb(rows),
+  };
+}
+
+function buildExpenseMap(
+  analysis: ReturnType<typeof analyzeOfficialWb>,
+) {
+  const map = new Map<string, number>();
+
+  const fixed: Array<[string, number]> = [
+    ["Логистика", Number(analysis.summary.logistics ?? 0)],
+    ["Хранение", Number(analysis.summary.storage ?? 0)],
+    ["Штрафы", Number(analysis.summary.penalties ?? 0)],
+    ["Приёмка", Number(analysis.summary.acceptance ?? 0)],
+  ];
+
+  for (const [name, amount] of fixed) {
+    if (amount !== 0) map.set(name, round(amount));
+  }
+
+  for (const item of analysis.deductionBreakdown) {
+    map.set(item.name, round((map.get(item.name) ?? 0) + item.amount));
+  }
+
+  return map;
+}
+
+function compareOfficialReports(
+  previous: ReturnType<typeof analyzeOfficialWb>,
+  current: ReturnType<typeof analyzeOfficialWb>,
+) {
+  const previousMap = buildExpenseMap(previous);
+  const currentMap = buildExpenseMap(current);
+
+  const categories = Array.from(
+    new Set([...previousMap.keys(), ...currentMap.keys()]),
+  );
+
+  const changes = categories
+    .map((category) => {
+      const previousAmount = previousMap.get(category) ?? 0;
+      const currentAmount = currentMap.get(category) ?? 0;
+      const delta = round(currentAmount - previousAmount);
+      const percentChange =
+        previousAmount === 0
+          ? currentAmount > 0
+            ? null
+            : 0
+          : round((delta / Math.abs(previousAmount)) * 100);
+
+      let kind:
+        | "new"
+        | "increased"
+        | "decreased"
+        | "disappeared"
+        | "unchanged" = "unchanged";
+
+      if (previousAmount === 0 && currentAmount > 0) {
+        kind = "new";
+      } else if (previousAmount > 0 && currentAmount === 0) {
+        kind = "disappeared";
+      } else if (
+        previousAmount > 0 &&
+        currentAmount >= previousAmount * 1.25 &&
+        delta >= 500
+      ) {
+        kind = "increased";
+      } else if (
+        previousAmount > 0 &&
+        currentAmount <= previousAmount * 0.75 &&
+        delta <= -500
+      ) {
+        kind = "decreased";
+      }
+
+      return {
+        category,
+        previousAmount: round(previousAmount),
+        currentAmount: round(currentAmount),
+        delta,
+        percentChange,
+        kind,
+      };
+    })
+    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+
+  const problems = changes.filter(
+    (item) => item.kind === "new" || item.kind === "increased",
+  );
+
+  const improvements = changes.filter(
+    (item) => item.kind === "decreased" || item.kind === "disappeared",
+  );
+
+  const previousPayout = Number(previous.summary.estimatedPayout ?? 0);
+  const currentPayout = Number(current.summary.estimatedPayout ?? 0);
+  const payoutDelta = round(currentPayout - previousPayout);
+
+  const previousSales =
+    Number(previous.summary.retailSales ?? 0) -
+    Number(previous.summary.retailReturns ?? 0);
+  const currentSales =
+    Number(current.summary.retailSales ?? 0) -
+    Number(current.summary.retailReturns ?? 0);
+
+  return {
+    summary: {
+      previousPayout: round(previousPayout),
+      currentPayout: round(currentPayout),
+      payoutDelta,
+      previousNetSales: round(previousSales),
+      currentNetSales: round(currentSales),
+      netSalesDelta: round(currentSales - previousSales),
+      newOrIncreasedCount: problems.length,
+      improvementCount: improvements.length,
+      extraCosts: round(
+        problems.reduce((sum, item) => sum + Math.max(item.delta, 0), 0),
+      ),
+    },
+    problems,
+    improvements,
+    allChanges: changes,
+  };
+}
+
 app.get("/health", (c) => c.json({ ok: true, service: "wb-mini-app" }));
 
 app.post("/upload", async (c) => {
@@ -542,6 +713,58 @@ app.post("/upload", async (c) => {
     console.error(error);
     return c.json(
       { ok: false, error: "Не удалось прочитать отчёт. Проверьте формат XLSX/CSV." },
+      422,
+    );
+  }
+});
+
+
+app.post("/compare", async (c) => {
+  try {
+    const body = await c.req.parseBody();
+    const previousFile = body.previousFile;
+    const currentFile = body.currentFile;
+
+    if (!(previousFile instanceof File) || !(currentFile instanceof File)) {
+      return c.json(
+        { ok: false, error: "Нужно загрузить предыдущий и текущий отчёт." },
+        400,
+      );
+    }
+
+    const previousReport = await readReportFile(previousFile);
+    const currentReport = await readReportFile(currentFile);
+
+    const comparison = compareOfficialReports(
+      previousReport.analysis,
+      currentReport.analysis,
+    );
+
+    return c.json({
+      ok: true,
+      mode: "comparison",
+      previous: {
+        fileName: previousFile.name,
+        rows: previousReport.analysis.rows,
+        summary: previousReport.analysis.summary,
+      },
+      current: {
+        fileName: currentFile.name,
+        rows: currentReport.analysis.rows,
+        summary: currentReport.analysis.summary,
+      },
+      comparison,
+    });
+  } catch (error) {
+    console.error(error);
+    return c.json(
+      {
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Не удалось сравнить отчёты.",
+      },
       422,
     );
   }
