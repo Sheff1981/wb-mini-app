@@ -45,6 +45,19 @@ type OfficialProduct = {
   forPay: number;
 };
 
+type ExpenseVerdict = {
+  category: string;
+  amount: number;
+  status: "Объяснимо" | "Проверить" | "Основание не подтверждено";
+  reason: string;
+};
+
+type VerdictSummary = {
+  explainedAmount: number;
+  reviewAmount: number;
+  note: string;
+};
+
 type UploadResult = {
   ok: boolean;
   mode?: "simple" | "wb_official";
@@ -58,6 +71,8 @@ type UploadResult = {
   };
   alerts?: OfficialAlert[];
   deductionBreakdown?: Array<{ name: string; amount: number }>;
+  expenseVerdicts?: ExpenseVerdict[];
+  verdictSummary?: VerdictSummary;
   products?: OfficialProduct[] | Array<Record<string, unknown>>;
   error?: string;
 };
@@ -208,6 +223,75 @@ export default function Home() {
               <Tile label="Снято за возвраты" value={official.sellerAccrualReturns} />
             </div>
           </section>
+
+          {officialResult.verdictSummary &&
+            officialResult.expenseVerdicts &&
+            officialResult.expenseVerdicts.length > 0 && (
+              <section className="mt-5 rounded-3xl border border-black/10 bg-white p-5 text-black shadow-sm">
+                <p className="text-sm text-black/50">Ревизия списаний</p>
+                <h2 className="mt-1 text-2xl font-bold">
+                  Где WB забрал деньги
+                </h2>
+
+                <div className="mt-4 grid grid-cols-2 gap-3">
+                  <div className="rounded-2xl bg-emerald-50 p-4">
+                    <p className="text-xs font-medium text-emerald-700">
+                      Объяснимо по отчёту
+                    </p>
+                    <p className="mt-1 text-xl font-bold text-emerald-700">
+                      {rub.format(officialResult.verdictSummary.explainedAmount)}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-red-50 p-4">
+                    <p className="text-xs font-medium text-red-700">
+                      Требует проверки
+                    </p>
+                    <p className="mt-1 text-xl font-bold text-red-700">
+                      {rub.format(officialResult.verdictSummary.reviewAmount)}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-4 space-y-3">
+                  {officialResult.expenseVerdicts.map((item, index) => {
+                    const statusClass =
+                      item.status === "Объяснимо"
+                        ? "bg-emerald-50 text-emerald-700"
+                        : item.status === "Проверить"
+                          ? "bg-amber-50 text-amber-800"
+                          : "bg-red-50 text-red-700";
+
+                    return (
+                      <div
+                        key={`${item.category}-${index}`}
+                        className="rounded-2xl border border-black/5 p-4"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <span
+                              className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusClass}`}
+                            >
+                              {item.status}
+                            </span>
+                            <h3 className="mt-3 font-bold">{item.category}</h3>
+                          </div>
+                          <p className="whitespace-nowrap font-bold">
+                            {rub.format(item.amount)}
+                          </p>
+                        </div>
+                        <p className="mt-2 text-sm leading-5 text-black/65">
+                          {item.reason}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <p className="mt-4 rounded-2xl bg-black/[0.04] p-3 text-xs leading-5 text-black/55">
+                  {officialResult.verdictSummary.note}
+                </p>
+              </section>
+            )}
 
           <section className="mt-5 rounded-3xl border border-black/10 bg-white p-5 text-black shadow-sm">
             <h2 className="text-xl font-bold">Куда ушли деньги</h2>
