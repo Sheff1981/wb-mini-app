@@ -58,6 +58,18 @@ type VerdictSummary = {
   note: string;
 };
 
+type ReviewCase = {
+  line: number;
+  date: string;
+  operation: string;
+  detail: string;
+  amount: number;
+  status: "Проверить" | "Основание не подтверждено";
+  why: string;
+  draft: string;
+  checklist: string[];
+};
+
 type ComparisonChange = {
   category: string;
   previousAmount: number;
@@ -104,6 +116,7 @@ type UploadResult = {
   deductionBreakdown?: Array<{ name: string; amount: number }>;
   expenseVerdicts?: ExpenseVerdict[];
   verdictSummary?: VerdictSummary;
+  reviewCases?: ReviewCase[];
   products?: OfficialProduct[] | Array<Record<string, unknown>>;
   error?: string;
 };
@@ -133,6 +146,7 @@ export default function Home() {
   const [comparison, setComparison] = useState<ComparisonResult | null>(null);
   const [compareStatus, setCompareStatus] = useState("");
   const [compareLoading, setCompareLoading] = useState(false);
+  const [copiedCase, setCopiedCase] = useState<number | null>(null);
 
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
@@ -179,6 +193,16 @@ export default function Home() {
       );
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function copyDraft(reviewCase: ReviewCase, index: number) {
+    try {
+      await navigator.clipboard.writeText(reviewCase.draft);
+      setCopiedCase(index);
+      window.setTimeout(() => setCopiedCase(null), 1800);
+    } catch {
+      setCopiedCase(null);
     }
   }
 
@@ -535,6 +559,79 @@ export default function Home() {
                 </section>
               );
             })()}
+
+          {officialResult.reviewCases && officialResult.reviewCases.length > 0 && (
+            <section className="mt-5 rounded-3xl border border-red-200 bg-white p-5 text-black shadow-sm">
+              <p className="text-sm text-black/50">Готово к проверке / оспариванию</p>
+              <h2 className="mt-1 text-2xl font-bold">
+                Досье на спорные списания
+              </h2>
+              <p className="mt-2 text-sm leading-5 text-black/55">
+                Здесь только конкретные строки отчёта, по которым есть смысл запросить расчёт или основание.
+              </p>
+
+              <div className="mt-4 space-y-4">
+                {officialResult.reviewCases.map((reviewCase, index) => (
+                  <article
+                    key={`${reviewCase.line}-${reviewCase.amount}-${index}`}
+                    className="rounded-2xl border border-red-100 bg-red-50/40 p-4"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-red-700">
+                          {reviewCase.status}
+                        </span>
+                        <h3 className="mt-3 font-bold">{reviewCase.detail}</h3>
+                        <p className="mt-1 text-xs text-black/45">
+                          Строка Excel {reviewCase.line} · {reviewCase.date}
+                        </p>
+                      </div>
+                      <p className="whitespace-nowrap font-bold text-red-600">
+                        {rub.format(reviewCase.amount)}
+                      </p>
+                    </div>
+
+                    <p className="mt-3 text-sm leading-5 text-black/65">
+                      {reviewCase.why}
+                    </p>
+
+                    <div className="mt-4 rounded-xl bg-white p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-black/40">
+                        Что приложить
+                      </p>
+                      <ul className="mt-2 space-y-1.5">
+                        {reviewCase.checklist.map((item) => (
+                          <li key={item} className="text-sm leading-5 text-black/65">
+                            • {item}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    <div className="mt-3 rounded-xl bg-white p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-black/40">
+                        Готовый текст обращения
+                      </p>
+                      <p className="mt-2 text-sm leading-5 text-black/70">
+                        {reviewCase.draft}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => copyDraft(reviewCase, index)}
+                        className="mt-3 w-full rounded-xl bg-black px-4 py-3 text-sm font-semibold text-white"
+                      >
+                        {copiedCase === index ? "Скопировано" : "Скопировать обращение"}
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+
+              <p className="mt-4 text-xs leading-5 text-black/45">
+                Статус «Проверить» не означает ошибку WB или гарантированный возврат денег — это операции, для которых сервис подготовил конкретный запрос на подтверждение расчёта.
+              </p>
+            </section>
+          )}
         </>
       )}
 
