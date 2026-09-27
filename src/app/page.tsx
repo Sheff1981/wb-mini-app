@@ -2,7 +2,7 @@
 
 import { ChangeEvent, useEffect, useState } from "react";
 
-type MoneySummary = {
+type SimpleSummary = {
   sales: number;
   returns: number;
   commission: number;
@@ -13,48 +13,52 @@ type MoneySummary = {
   profit: number;
 };
 
-type Product = {
-  id: number;
+type OfficialSummary = {
+  retailSales: number;
+  retailReturns: number;
+  sellerAccrualSales: number;
+  sellerAccrualReturns: number;
+  logistics: number;
+  storage: number;
+  deductions: number;
+  penalties: number;
+  acceptance: number;
+  commission: number;
+  acquiring: number;
+  otherAdjustments: number;
+  estimatedPayout: number;
+};
+
+type OfficialAlert = {
+  level: "Высокий" | "Средний";
+  title: string;
+  amount: number;
+  explanation: string;
+  action: string;
+};
+
+type OfficialProduct = {
   article: string;
   name: string;
   sales: number;
   returns: number;
-  commission: number;
-  logistics: number;
-  storage: number;
-  deductions: number;
-  cost: number;
-  profit: number;
-};
-
-type Problem = {
-  article: string;
-  name: string;
-  profit: number;
-  priority: "Высокий" | "Средний";
-  reason: string;
-  metrics: {
-    logisticsStorageShare: number;
-    returnsShare: number;
-    commissionShare: number;
-    deductionsShare: number;
-    totalVariableCosts: number;
-  };
-  recommendations: string[];
+  forPay: number;
 };
 
 type UploadResult = {
   ok: boolean;
-  file?: {
-    name: string;
-    size: number;
-    type: string;
-  };
-  sheet?: string;
+  mode?: "simple" | "wb_official";
   rows?: number;
-  summary?: MoneySummary;
-  products?: Product[];
-  problems?: Problem[];
+  summary?: SimpleSummary | OfficialSummary;
+  ratios?: {
+    costsShare: number;
+    logisticsShare: number;
+    storageShare: number;
+    returnsShare: number;
+  };
+  alerts?: OfficialAlert[];
+  deductionBreakdown?: Array<{ name: string; amount: number }>;
+  products?: OfficialProduct[] | Array<Record<string, unknown>>;
   error?: string;
 };
 
@@ -64,25 +68,11 @@ const rub = new Intl.NumberFormat("ru-RU", {
   maximumFractionDigits: 0,
 });
 
-function MoneyCard({
-  label,
-  value,
-  negative = false,
-}: {
-  label: string;
-  value: number;
-  negative?: boolean;
-}) {
+function Tile({ label, value }: { label: string; value: number }) {
   return (
     <div className="rounded-2xl bg-black/[0.04] p-4">
       <p className="text-xs font-medium text-black/50">{label}</p>
-      <p
-        className={`mt-1 text-xl font-bold ${
-          negative ? "text-red-600" : "text-black"
-        }`}
-      >
-        {rub.format(value)}
-      </p>
+      <p className="mt-1 text-xl font-bold text-black">{rub.format(value)}</p>
     </div>
   );
 }
@@ -90,28 +80,24 @@ function MoneyCard({
 export default function Home() {
   const [file, setFile] = useState<File | null>(null);
   const [result, setResult] = useState<UploadResult | null>(null);
-  const [status, setStatus] = useState<string>("");
+  const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
-
     if (!tg) return;
-
     tg.ready();
     tg.expand();
   }, []);
 
   function onFileChange(event: ChangeEvent<HTMLInputElement>) {
-    const selected = event.target.files?.[0] ?? null;
-    setFile(selected);
+    setFile(event.target.files?.[0] ?? null);
     setResult(null);
     setStatus("");
   }
 
   async function upload() {
     if (!file) return;
-
     setLoading(true);
     setResult(null);
     setStatus("");
@@ -126,13 +112,16 @@ export default function Home() {
       });
 
       const data = (await response.json()) as UploadResult;
-
       if (!response.ok || !data.ok) {
         throw new Error(data.error ?? "Не удалось проанализировать файл.");
       }
 
       setResult(data);
-      setStatus(`Проанализировано строк: ${data.rows ?? 0}`);
+      setStatus(
+        data.mode === "wb_official"
+          ? `Распознана детализация WB: ${data.rows ?? 0} операций`
+          : `Проанализировано строк: ${data.rows ?? 0}`,
+      );
     } catch (error) {
       setStatus(
         error instanceof Error ? error.message : "Произошла неизвестная ошибка.",
@@ -142,14 +131,24 @@ export default function Home() {
     }
   }
 
+  const official =
+    result?.mode === "wb_official"
+      ? (result.summary as OfficialSummary | undefined)
+      : undefined;
+
+  const simple =
+    result?.mode === "simple"
+      ? (result.summary as SimpleSummary | undefined)
+      : undefined;
+
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-xl flex-col px-5 py-8">
       <section className="mb-8">
         <p className="mb-2 text-sm font-medium opacity-60">Telegram Mini App</p>
-        <h1 className="text-3xl font-bold tracking-tight">WB Аналитик</h1>
+        <h1 className="text-3xl font-bold tracking-tight">WB Ревизор</h1>
         <p className="mt-3 text-base leading-6 opacity-70">
-          Загрузите отчёт Wildberries. Покажем, куда уходят деньги и какие
-          товары требуют внимания.
+          Загрузите детализацию еженедельного отчёта WB. Объясним, куда ушли
+          деньги и какие списания стоит проверить.
         </p>
       </section>
 
@@ -179,7 +178,7 @@ export default function Home() {
           onClick={upload}
           className="mt-4 w-full rounded-2xl bg-black px-5 py-3.5 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-30"
         >
-          {loading ? "Анализируем…" : "Анализировать отчёт"}
+          {loading ? "Разбираем отчёт…" : "Объяснить, куда ушли деньги"}
         </button>
 
         {status && (
@@ -189,117 +188,141 @@ export default function Home() {
         )}
       </section>
 
-      {result?.summary && (
-        <section className="mt-5 rounded-3xl border border-black/10 bg-white p-5 text-black shadow-sm">
-          <div className="mb-4">
-            <p className="text-sm text-black/50">Результат анализа</p>
-            <h2 className="text-2xl font-bold">
-              {rub.format(result.summary.profit)}
+      {official && (
+        <>
+          <section className="mt-5 rounded-3xl border border-black/10 bg-white p-5 text-black shadow-sm">
+            <p className="text-sm text-black/50">Расшифровка выплаты</p>
+            <h2 className="mt-1 text-3xl font-bold">
+              {rub.format(official.estimatedPayout)}
             </h2>
-            <p className="text-sm text-black/50">Расчётная прибыль</p>
-          </div>
+            <p className="mt-1 text-sm text-black/50">
+              Расчётный итог по операциям детализации
+            </p>
 
-          <div className="grid grid-cols-2 gap-3">
-            <MoneyCard label="Продажи" value={result.summary.sales} />
-            <MoneyCard label="Возвраты" value={result.summary.returns} />
-            <MoneyCard label="Комиссия WB" value={result.summary.commission} />
-            <MoneyCard label="Логистика" value={result.summary.logistics} />
-            <MoneyCard label="Хранение" value={result.summary.storage} />
-            <MoneyCard label="Удержания" value={result.summary.deductions} />
-          </div>
-        </section>
-      )}
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <Tile label="Продажи покупателям" value={official.retailSales} />
+              <Tile label="Возвраты" value={official.retailReturns} />
+              <Tile label="Начислено за продажи" value={official.sellerAccrualSales} />
+              <Tile label="Снято за возвраты" value={official.sellerAccrualReturns} />
+            </div>
+          </section>
 
-      {result?.problems && result.problems.length > 0 && (
-        <section className="mt-5 rounded-3xl border border-red-200 bg-white p-5 text-black shadow-sm">
-          <h2 className="text-xl font-bold">
-            Где теряются деньги: {result.problems.length}
-          </h2>
-
-          <div className="mt-4 space-y-3">
-            {result.problems.map((problem) => (
-              <div
-                key={`${problem.article}-${problem.name}`}
-                className="rounded-2xl bg-red-50 p-4"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="font-semibold">{problem.name}</p>
-                    <p className="mt-1 text-xs text-black/50">
-                      {problem.article}
-                    </p>
-                  </div>
-                  <p className="whitespace-nowrap font-bold text-red-600">
-                    {rub.format(problem.profit)}
-                  </p>
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                  <span className="rounded-full bg-white px-2.5 py-1 font-semibold text-red-700">
-                    Приоритет: {problem.priority}
-                  </span>
-                  <span className="rounded-full bg-white px-2.5 py-1 text-black/60">
-                    Логистика + хранение: {problem.metrics.logisticsStorageShare}%
-                  </span>
-                  {problem.metrics.returnsShare > 0 && (
-                    <span className="rounded-full bg-white px-2.5 py-1 text-black/60">
-                      Возвраты: {problem.metrics.returnsShare}%
-                    </span>
-                  )}
-                </div>
-
-                <p className="mt-3 text-sm font-medium text-black/75">
-                  Почему:
-                </p>
-                <p className="mt-1 text-sm text-black/65">{problem.reason}</p>
-
-                <div className="mt-4 rounded-xl bg-white p-3">
-                  <p className="text-sm font-semibold">Что делать</p>
-                  <ul className="mt-2 space-y-2">
-                    {problem.recommendations.map((recommendation, index) => (
-                      <li
-                        key={index}
-                        className="flex gap-2 text-sm leading-5 text-black/70"
-                      >
-                        <span className="font-bold text-black/35">•</span>
-                        <span>{recommendation}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {result?.products && result.products.length > 0 && (
-        <section className="mt-5 mb-8 rounded-3xl border border-black/10 bg-white p-5 text-black shadow-sm">
-          <h2 className="text-xl font-bold">Товары</h2>
-          <div className="mt-3 divide-y divide-black/10">
-            {result.products
-              .slice()
-              .sort((a, b) => a.profit - b.profit)
-              .map((product) => (
+          <section className="mt-5 rounded-3xl border border-black/10 bg-white p-5 text-black shadow-sm">
+            <h2 className="text-xl font-bold">Куда ушли деньги</h2>
+            <div className="mt-4 space-y-3">
+              {[
+                ["Логистика", official.logistics],
+                ["Хранение", official.storage],
+                ["Удержания", official.deductions],
+                ["Штрафы", official.penalties],
+                ["Приёмка", official.acceptance],
+              ].map(([label, value]) => (
                 <div
-                  key={product.id}
-                  className="flex items-center justify-between gap-3 py-3"
+                  key={String(label)}
+                  className="flex items-center justify-between rounded-2xl bg-black/[0.04] px-4 py-3"
                 >
-                  <div className="min-w-0">
-                    <p className="truncate font-medium">{product.name}</p>
-                    <p className="text-xs text-black/45">{product.article}</p>
-                  </div>
-                  <p
-                    className={`whitespace-nowrap font-semibold ${
-                      product.profit < 0 ? "text-red-600" : "text-emerald-600"
-                    }`}
-                  >
-                    {rub.format(product.profit)}
-                  </p>
+                  <span className="text-sm font-medium">{label}</span>
+                  <span className="font-bold">{rub.format(Number(value))}</span>
                 </div>
               ))}
+            </div>
+
+            {result.ratios && (
+              <div className="mt-4 rounded-2xl bg-black p-4 text-white">
+                <p className="text-sm font-semibold">
+                  Все основные списания: {result.ratios.costsShare}% от чистых
+                  продаж
+                </p>
+                <p className="mt-1 text-xs text-white/65">
+                  Логистика {result.ratios.logisticsShare}% · хранение{" "}
+                  {result.ratios.storageShare}% · возвраты{" "}
+                  {result.ratios.returnsShare}%
+                </p>
+              </div>
+            )}
+          </section>
+
+          {result.alerts && result.alerts.length > 0 && (
+            <section className="mt-5 rounded-3xl border border-red-200 bg-white p-5 text-black shadow-sm">
+              <h2 className="text-xl font-bold">
+                Что проверить: {result.alerts.length}
+              </h2>
+              <div className="mt-4 space-y-3">
+                {result.alerts.map((alert, index) => (
+                  <div key={index} className="rounded-2xl bg-red-50 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-red-700">
+                          {alert.level}
+                        </span>
+                        <h3 className="mt-3 font-bold">{alert.title}</h3>
+                      </div>
+                      <p className="whitespace-nowrap font-bold text-red-600">
+                        {rub.format(alert.amount)}
+                      </p>
+                    </div>
+                    <p className="mt-2 text-sm leading-5 text-black/65">
+                      {alert.explanation}
+                    </p>
+                    <div className="mt-3 rounded-xl bg-white p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-black/40">
+                        Что делать
+                      </p>
+                      <p className="mt-1 text-sm leading-5 text-black/75">
+                        {alert.action}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {result.deductionBreakdown &&
+            result.deductionBreakdown.length > 0 && (
+              <section className="mt-5 rounded-3xl border border-black/10 bg-white p-5 text-black shadow-sm">
+                <h2 className="text-xl font-bold">Расшифровка удержаний</h2>
+                <div className="mt-3 divide-y divide-black/10">
+                  {result.deductionBreakdown.map((item, index) => (
+                    <div
+                      key={index}
+                      className="flex items-start justify-between gap-4 py-3"
+                    >
+                      <p className="text-sm leading-5 text-black/70">{item.name}</p>
+                      <p
+                        className={`whitespace-nowrap font-semibold ${
+                          item.amount > 0 ? "text-red-600" : "text-emerald-600"
+                        }`}
+                      >
+                        {rub.format(item.amount)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+        </>
+      )}
+
+      {simple && (
+        <section className="mt-5 rounded-3xl border border-black/10 bg-white p-5 text-black shadow-sm">
+          <p className="text-sm text-black/50">Тестовый формат</p>
+          <h2 className="mt-1 text-2xl font-bold">{rub.format(simple.profit)}</h2>
+          <p className="text-sm text-black/50">Расчётная прибыль</p>
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <Tile label="Продажи" value={simple.sales} />
+            <Tile label="Возвраты" value={simple.returns} />
+            <Tile label="Комиссия WB" value={simple.commission} />
+            <Tile label="Логистика" value={simple.logistics} />
+            <Tile label="Хранение" value={simple.storage} />
+            <Tile label="Удержания" value={simple.deductions} />
           </div>
         </section>
       )}
+
+      <p className="mt-8 text-center text-xs text-black/35">
+        Анализ носит расчётный характер и зависит от данных в загруженном отчёте.
+      </p>
     </main>
   );
 }
